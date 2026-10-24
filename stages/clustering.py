@@ -6,8 +6,8 @@ import numpy as np
 
 from pipeline.stage import Stage
 from pipeline.context import PipelineContext
-from pipeline.io.reader import read_single_scenario, read_street_info
-from pipeline.io.clickhouse import read_clickhouse_scenario, ClickHouseClient
+from pipeline.io.reader import read_street_info
+from pipeline.io.source import read_scenario
 from pipeline.io.writer import save_json, ensure_dir
 from pipeline.domain.processor import process_dataset
 from tslearn.clustering import KShape
@@ -33,37 +33,19 @@ class DataLoadStage(Stage):
             print(f"[{self.name}] Vias carregadas: {len(ctx.streets_info)}")
 
     def _load_csv(self, ctx: PipelineContext) -> None:
-        cfg = ctx.config
-        print(f"[{self.name}] Carregando cenário (CSV): {cfg.scenario_dir}")
-        (
-            ctx.max_size,
-            ctx.street_series,
-            ctx.street_series_vehicles,
-            ctx.street_vehicles,
-            ctx.time_series_labels,
-            ctx.street_series_labeled_vehicles,
-        ) = read_single_scenario(
-            cfg.scenario_dir,
-            sep=cfg.csv_sep,
-            intervals=cfg.intervals.as_dict(),
-        )
+        print(f"[{self.name}] Carregando cenário (CSV): {ctx.config.scenario_dir}")
+        self._load(ctx)
 
     def _load_clickhouse(self, ctx: PipelineContext) -> None:
-        cfg = ctx.config
-        ch = cfg.clickhouse
+        ch = ctx.config.clickhouse
         scope = f"{ch.database}.{ch.table}"
         if ch.simulation_id:
             scope += f" (simulation_id={ch.simulation_id})"
         print(f"[{self.name}] Carregando cenário do ClickHouse: {scope}")
+        self._load(ctx)
 
-        client = ClickHouseClient(
-            host=ch.host,
-            port=ch.port,
-            database=ch.database,
-            user=ch.user,
-            password=ch.password,
-            secure=ch.secure,
-        )
+    @staticmethod
+    def _load(ctx: PipelineContext) -> None:
         (
             ctx.max_size,
             ctx.street_series,
@@ -71,12 +53,7 @@ class DataLoadStage(Stage):
             ctx.street_vehicles,
             ctx.time_series_labels,
             ctx.street_series_labeled_vehicles,
-        ) = read_clickhouse_scenario(
-            client,
-            intervals=cfg.intervals.as_dict(),
-            simulation_id=ch.simulation_id,
-            table=ch.table,
-        )
+        ) = read_scenario(ctx.config)
 
 
 class ProcessDatasetStage(Stage):

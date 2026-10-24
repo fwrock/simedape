@@ -11,7 +11,7 @@
 | `intervals` | `start`, `end`, `interval_size` (seconds) — the time-binning window for series construction. |
 | `clustering` | `n_clusters`, `verbose`, `random_state`, `max_iter`, `output_file`, `clustering_size`. |
 | `transport_modes` | List, default `["car"]` — see the multimodal caveat in [PIPELINE.md](PIPELINE.md#scenario_metrics) and [KNOWN_GAPS.md](KNOWN_GAPS.md). |
-| `data_source` | `"csv"` (default) or `"clickhouse"` — which time-series source `DataLoadStage` reads. |
+| `data_source` | `"csv"` (default) or `"clickhouse"` — which time-series source is read — by `DataLoadStage` and by the partial scenario of `estimation`, `pca_estimation` and `sweep` (there, `second_scenario_dir` / the sweep `dir` is a directory for csv and a `simulation_id` for clickhouse). |
 | `clickhouse` | `ClickHouseConfig` — `host`, `port`, `database`, `user`, `password`, `table`, `simulation_id`, `secure`. Used only when `data_source == "clickhouse"`. |
 
 ## ClickHouse source

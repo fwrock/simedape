@@ -38,7 +38,7 @@ import numpy as np
 
 from pipeline.stage import Stage
 from pipeline.context import PipelineContext
-from pipeline.io.reader import read_single_scenario
+from pipeline.io.source import read_scenario, training_location
 from pipeline.io.writer import save_json, load_json, ensure_dir
 from pipeline.domain.processor import process_dataset, pre_processing_estimation
 from pipeline.stages.simulation_points import ensure_clustering_loaded
@@ -63,15 +63,13 @@ def _run_dtw_methods(methods, ctx, second_dir, percentage, wps_folder, interp_me
         Se definido, usa _stretch_to_length com o método especificado para
         reamostrar as séries parciais antes do warping.
     """
-    from pipeline.io.reader import read_single_scenario
+    from pipeline.io.source import read_scenario, training_location
     from pipeline.domain.processor import process_dataset, pre_processing_estimation, process_dataset_interp
 
     cfg = ctx.config
     clustering = ctx.clustering_result
 
-    _, ss2, _, _, labels_2, _ = read_single_scenario(
-        second_dir, sep=cfg.csv_sep, intervals=cfg.intervals.as_dict()
-    )
+    _, ss2, _, _, labels_2, _ = read_scenario(cfg, second_dir)
     centroid_size = len(clustering["centroids"]["0"])
     if interp_method is None:
         X_2, mean_2, std_2 = process_dataset(ss2, centroid_size)
@@ -141,7 +139,7 @@ def _run_pca_method(ctx, second_dir, use_sp=None, mode="sp", interp_method=None,
     if use_sp is not None:
         mode = "sp" if use_sp else "ind"
 
-    from pipeline.io.reader import read_single_scenario
+    from pipeline.io.source import read_scenario, training_location
     from pipeline.domain.processor import process_dataset, pre_processing_estimation
     from pipeline.domain.metrics import calc_metrics
     from pipeline.stages.pca import (
@@ -163,9 +161,7 @@ def _run_pca_method(ctx, second_dir, use_sp=None, mode="sp", interp_method=None,
             "Execute PCATrainStage antes de SweepStage com include_pca=True."
         )
 
-    max_size_2, ss2, _, _, labels_2, _ = read_single_scenario(
-        second_dir, sep=cfg.csv_sep, intervals=cfg.intervals.as_dict()
-    )
+    max_size_2, ss2, _, _, labels_2, _ = read_scenario(cfg, second_dir)
     centroid_size = len(clustering["centroids"]["0"])
 
     # Para sp sem interp: reamostrar para centroid_size (séries comparáveis ao SP)
@@ -318,7 +314,7 @@ def _run_pca_delta_method(ctx, second_dir, delta_mode, interp_method=None,
     use_eig : bool
         Se True, aplica filtro de Wiener espectral nos pesos finais.
     """
-    from pipeline.io.reader import read_single_scenario
+    from pipeline.io.source import read_scenario, training_location
     from pipeline.domain.processor import process_dataset, pre_processing_estimation
     from pipeline.domain.metrics import calc_metrics
     from pipeline.stages.pca import (
@@ -353,9 +349,7 @@ def _run_pca_delta_method(ctx, second_dir, delta_mode, interp_method=None,
     # Para 'base': não precisa de dados do novo cenário
     cluster_sp_weights_new = {}
     if delta_mode != "base":
-        max_size_2, ss2, _, _, labels_2, _ = read_single_scenario(
-            second_dir, sep=cfg.csv_sep, intervals=cfg.intervals.as_dict()
-        )
+        max_size_2, ss2, _, _, labels_2, _ = read_scenario(cfg, second_dir)
         X_2, mean_2, std_2 = process_dataset(ss2, max_size_2)
         X_2_denorm = _denormalize(X_2, mean_2, std_2)
         _, labels_2_dict = pre_processing_estimation(labels_2)
@@ -493,7 +487,7 @@ class SweepStage(Stage):
 
             # dir vazio ou keyword 'training'/'100%' → usa o cenário de treinamento
             if not second_dir or second_dir.strip().lower() in ("training", "100%"):
-                second_dir = ctx.config.scenario_dir
+                second_dir = training_location(ctx.config)
                 print(f"  [{label}] Usando cenário de treinamento: {second_dir}")
 
             print(f"\n  ── Cenário {i}/{len(self.scenarios)}: {label} ({second_dir})")
