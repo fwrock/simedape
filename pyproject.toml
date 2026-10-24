@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "simedape"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "scikit-learn",
+    "matplotlib",
+    "pyarrow",
+    "tslearn",
+    "jproperties",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+integration = ["aiohttp"]
+api = ["flask"]
+test = ["pytest", "flask"]
+
+[project.scripts]
+simedape = "pipeline.cli:main"
+
+# ---------------------------------------------------------------------------
+# Package layout
+# ---------------------------------------------------------------------------
+# All source files live directly under the simedape/ directory and use
+# "from pipeline.X import Y" as the internal import convention (the simedape
+# directory IS the "pipeline" package).  We tell setuptools to expose the
+# package root (.) as the Python package named "pipeline".
+# ---------------------------------------------------------------------------
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-dir]
+"pipeline" = "."
