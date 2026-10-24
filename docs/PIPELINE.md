@@ -6,6 +6,10 @@
 stage's `execute(ctx)` reads/writes attributes directly on one shared, mutable `PipelineContext`
 (`context.py`) — there's no formal input/output contract or validation between stages beyond each
 stage's own `RuntimeError` checks. `Stage` (`stage.py`) is a trivial ABC (`name` + `execute`).
+`Pipeline.run(progress=cb)` calls `cb(event_dict)` for `pipeline_start`, `stage_start`, `stage_end`,
+`stage_failed` and `pipeline_end` (used by the HTTP API for progress; callback errors are ignored).
+Every stage that loads a scenario goes through `io/source.py:read_scenario`, so `data_source`
+(csv/clickhouse) applies to the partial scenario of `estimation`/`pca_estimation`/`sweep` too.
 
 The CLI (`cli.py`) selects stages by name via `--stages a,b,c` (with optional
 `--stage-params STAGE.PARAM=VALUE` overrides), or a full pipeline via `--pipeline file.yml`

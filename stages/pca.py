@@ -21,7 +21,7 @@ from sklearn.decomposition import PCA
 
 from pipeline.stage import Stage
 from pipeline.context import PipelineContext
-from pipeline.io.reader import read_single_scenario
+from pipeline.io.source import read_scenario, training_location
 from pipeline.io.writer import save_json, ensure_dir
 from pipeline.domain.processor import process_dataset, pre_processing_estimation
 from pipeline.domain.metrics import calc_metrics
@@ -578,11 +578,9 @@ class PCAEstimationStage(Stage):
             cluster_centers = ctx.clustering_result["centroids"]
 
         # Carrega cenário parcial
-        second_dir = self.second_scenario_dir or cfg.scenario_dir
+        second_dir = self.second_scenario_dir or training_location(cfg)
         print(f"[{self.name}] Carregando cenário parcial: {second_dir}")
-        _, ss2, _, _, labels_2, _ = read_single_scenario(
-            second_dir, sep=cfg.csv_sep, intervals=cfg.intervals.as_dict()
-        )
+        _, ss2, _, _, labels_2, _ = read_scenario(cfg, second_dir)
 
         clustering = ctx.clustering_result
         centroid_size = len(clustering["centroids"]["0"])

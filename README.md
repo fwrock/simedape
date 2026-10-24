@@ -14,17 +14,13 @@ Originally validated single-mode (car only) in Rocha et al. 2021 against InterSC
 module is where multimodal estimation and alternative prediction methods are being extended for
 the HTC platform.
 
-> ⚠️ **Before installing**: `domain/dtw.py` imports `dtaidistance`, which is **not declared** in
-> `pyproject.toml`'s dependencies. A clean `pip install` will fail at import time unless you
-> install it manually (`pip install dtaidistance`). A `tests/` suite now covers the data-source
-> readers and configuration — run it with `python3 -m unittest discover -s tests -t .`.
-> See [docs/KNOWN_GAPS.md](docs/KNOWN_GAPS.md).
+> A `tests/` suite covers the data-source readers, configuration and the HTTP API — run it with
+> `python3 -m unittest discover -s tests -t .`. See [docs/KNOWN_GAPS.md](docs/KNOWN_GAPS.md).
 
 ## Install
 
 ```bash
 pip install -e .
-pip install dtaidistance   # not auto-installed — see warning above
 pip install -e ".[integration]"   # optional: adds aiohttp for the HTC REST connector
 pip install -e ".[api]"           # optional: adds Flask for the management HTTP API
 ```

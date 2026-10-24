@@ -5,9 +5,11 @@ import json
 
 from flask import Blueprint, Flask, current_app, jsonify, request
 
+from pipeline.api import exports
 from pipeline.api.jobs import JobManager
 from pipeline.api.store import ConfigStore
 from pipeline.config import SimEDaPEConfig
+from pipeline.io.source import describe_source
 from pipeline.pipeline import Pipeline, _build_stage_registry
 
 api = Blueprint("api", __name__, url_prefix="/api")
@@ -178,21 +180,38 @@ def create_run():
 
     stage_params = body.get("stage_params", {}) or {}
 
-    def run() -> dict:
+    try:
+        source = describe_source(config)
+    except ValueError as exc:
+        return jsonify({"error": f"Config inválida: {exc}"}), 400
+
+    meta = {
+        "scenario_name": config.scenario_name,
+        "output_dir": config.output_dir,
+        "data_source": source,
+        "config": cfg_ref if isinstance(cfg_ref, str) else None,
+        "stages": stages,
+        "stage_params": stage_params,
+        "clustering_file": config.clustering.output_file,
+    }
+
+    def run(job) -> dict:
         pipeline = Pipeline(config)
         for stage_name in stages:
             params = stage_params.get(stage_name, {}) or {}
             pipeline.add(registry[stage_name](**params))
-        ctx = pipeline.run()
+        ctx = pipeline.run(progress=job.on_progress)
         return _summarize_context(ctx)
 
-    run_id = _services()["job_manager"].submit(run, name=body.get("name", ""))
+    run_id = _services()["job_manager"].submit(
+        run, name=body.get("name", ""), meta=meta, pass_job=True
+    )
     return jsonify({"run_id": run_id}), 202
 
 
 @api.get("/runs")
 def list_runs():
-    return jsonify([j.to_dict() for j in _services()["job_manager"].list()])
+    return jsonify(exports.sanitize([j.to_dict() for j in _services()["job_manager"].list()]))
 
 
 @api.get("/runs/<run_id>")
@@ -201,7 +220,7 @@ def get_run(run_id):
         job = _services()["job_manager"].get(run_id)
     except KeyError:
         return jsonify({"error": f"Run não encontrado: {run_id!r}"}), 404
-    return jsonify(job.to_dict())
+    return jsonify(exports.sanitize(job.to_dict()))
 
 
 @api.delete("/runs/<run_id>")
@@ -215,6 +234,108 @@ def cancel_run(run_id):
         return jsonify({"error": "Run já iniciado/finalizado; cancelamento indisponível."}), 409
     return jsonify({"run_id": run_id, "status": "cancelled"})
 
+
+
+# --------------------------------------------------------------------------
+# Progresso e exportação de resultados de um run
+# --------------------------------------------------------------------------
+
+def _job_or_404(run_id):
+    try:
+        return _services()["job_manager"].get(run_id), None
+    except KeyError:
+        return None, (jsonify({"error": f"Run não encontrado: {run_id!r}"}), 404)
+
+
+def _stage_prefix(job, stage: str, key: str, default: str) -> str:
+    """Prefixo dos arquivos de um estágio: ``?prefix=`` > stage_params do run > default."""
+    override = request.args.get("prefix")
+    if override:
+        return override
+    params = (job.meta.get("stage_params") or {}).get(stage) or {}
+    return params.get(key, default)
+
+
+@api.get("/runs/<run_id>/progress")
+def run_progress(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    return jsonify(exports.sanitize({
+        "run_id": job.run_id,
+        "name": job.name,
+        "status": job.status,
+        "data_source": job.meta.get("data_source"),
+        "created_at": job.created_at,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "error": job.error,
+        **job.progress_dict(),
+    }))
+
+
+@api.get("/runs/<run_id>/artifacts")
+def run_artifacts(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    out_dir = job.meta.get("output_dir")
+    return jsonify({
+        "run_id": job.run_id,
+        "output_dir": out_dir,
+        "data_source": job.meta.get("data_source"),
+        "artifacts": exports.list_artifacts(out_dir, job.meta.get("clustering_file", "clustering")),
+    })
+
+
+@api.get("/runs/<run_id>/estimation")
+def run_estimation(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    out_dir = job.meta.get("output_dir")
+    prefix = _stage_prefix(job, "estimation", "output_prefix", "result")
+    method = request.args.get("method")
+    if not exports.valid_name(prefix):
+        return jsonify({"error": "Prefixo inválido."}), 400
+    if not method:
+        return jsonify({"run_id": run_id, **exports.estimation_overview(out_dir, prefix)})
+    if not exports.valid_name(method):
+        return jsonify({"error": "Método inválido."}), 400
+    try:
+        offset = max(int(request.args.get("offset", 0)), 0)
+        limit = request.args.get("limit")
+        limit = max(int(limit), 0) if limit is not None else None
+    except ValueError:
+        return jsonify({"error": "'offset' e 'limit' devem ser inteiros."}), 400
+    try:
+        detail = exports.estimation_detail(
+            out_dir, method, prefix, request.args.get("metric"), offset, limit
+        )
+    except exports.ArtifactNotFound:
+        return jsonify({"error": f"Estimativa não encontrada: {method!r}"}), 404
+    return jsonify({"run_id": run_id, **detail})
+
+
+@api.get("/runs/<run_id>/comparison")
+def run_comparison(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    out_dir = job.meta.get("output_dir")
+    prefix = _stage_prefix(job, "compare", "output_prefix", "compare")
+    method = request.args.get("method")
+    if not exports.valid_name(prefix):
+        return jsonify({"error": "Prefixo inválido."}), 400
+    if not method:
+        return jsonify({"run_id": run_id, **exports.comparison_matrix(out_dir, prefix)})
+    if not exports.valid_name(method):
+        return jsonify({"error": "Método inválido."}), 400
+    try:
+        detail = exports.comparison_detail(out_dir, method, prefix)
+    except exports.ArtifactNotFound:
+        return jsonify({"error": f"Comparação não encontrada: {method!r}"}), 404
+    return jsonify({"run_id": run_id, "method": method, **detail})
 
 
 def _summarize_context(ctx) -> dict:

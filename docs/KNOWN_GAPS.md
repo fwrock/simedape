@@ -2,11 +2,10 @@
 
 ## Packaging
 
-- **Missing dependency**: `domain/dtw.py` imports `dtaidistance`, which is not declared in
-  `pyproject.toml`. A clean install will fail at import time unless installed manually. `joblib`
-  is also imported directly (used for caching/parallelism) and happens to work today only because
-  it's a transitive dependency of `scikit-learn` — it should be declared explicitly rather than
-  relied on implicitly.
+- `dtaidistance` and `joblib` are now declared in `pyproject.toml` (previously `dtaidistance` was missing
+  and `joblib` only arrived transitively via `scikit-learn`). The build backend is
+  `setuptools.build_meta`, and the sub-packages are listed explicitly under `[tool.setuptools]`
+  (`packages.find` could not discover the `pipeline` mapping, so earlier wheels were empty).
 - Packaging uses a deliberate trick: `[tool.setuptools.package-dir] pipeline = "."` maps the
   `simedape/` directory itself to the Python package name `pipeline`, and all internal imports use
   `from pipeline.X import Y` (explained in a comment in `pyproject.toml`, lines 27-34). This is
