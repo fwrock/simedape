@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 import time
-from typing import List
+from typing import Callable, List, Optional
 
 from pipeline.stage import Stage
 from pipeline.context import PipelineContext
@@ -44,8 +44,22 @@ class Pipeline:
         self._stages.append(stage)
         return self
 
-    def run(self) -> PipelineContext:
-        """Executa todos os estágios em ordem e retorna o contexto final."""
+    def run(self, progress: Optional[Callable[[dict], None]] = None) -> PipelineContext:
+        """Executa todos os estágios em ordem e retorna o contexto final.
+
+        ``progress``, se dado, é chamado com um dict por evento
+        (``pipeline_start``, ``stage_start``, ``stage_end``, ``stage_failed``,
+        ``pipeline_end``). Falhas do callback são ignoradas: observar o pipeline
+        nunca deve derrubá-lo.
+        """
+        def emit(**event) -> None:
+            if progress is None:
+                return
+            try:
+                progress(event)
+            except Exception:  # noqa: BLE001
+                pass
+
         ctx = PipelineContext(self.config)
         total_start = time.time()
 
@@ -54,18 +68,28 @@ class Pipeline:
         print(f"  Cenário: {self.config.scenario_name}")
         print(f"  Saída:   {self.config.output_dir}")
         print(f"{'='*60}\n")
+        emit(event="pipeline_start", stages=[st.name for st in self._stages])
 
         for i, stage in enumerate(self._stages, 1):
             print(f"[{i}/{len(self._stages)}] Estágio: {stage.name}")
+            emit(event="stage_start", index=i, name=stage.name)
             stage_start = time.time()
-            stage.execute(ctx)
+            try:
+                stage.execute(ctx)
+            except Exception as exc:
+                emit(event="stage_failed", index=i, name=stage.name,
+                     elapsed=time.time() - stage_start,
+                     error=f"{type(exc).__name__}: {exc}")
+                raise
             elapsed = time.time() - stage_start
             print(f"  ✓ {stage.name} concluído em {elapsed:.1f}s\n")
+            emit(event="stage_end", index=i, name=stage.name, elapsed=elapsed)
 
         total = time.time() - total_start
         print(f"{'='*60}")
         print(f"  Pipeline concluído em {total:.1f}s")
         print(f"{'='*60}\n")
+        emit(event="pipeline_end", elapsed=total)
         return ctx
 
     @classmethod

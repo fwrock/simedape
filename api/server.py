@@ -22,6 +22,11 @@ def main() -> None:
         help="Diretório p/ persistir as configurações (JSON). Vazio = só memória.",
     )
     parser.add_argument(
+        "--runs-dir",
+        default=None,
+        help="Diretório p/ persistir os runs (JSON); sobrevivem a reinícios. Vazio = só memória.",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=2,
@@ -37,7 +42,7 @@ def main() -> None:
 
     app = create_app(
         config_store=ConfigStore(storage_dir=args.configs_dir),
-        job_manager=JobManager(max_workers=args.max_workers),
+        job_manager=JobManager(max_workers=args.max_workers, state_dir=args.runs_dir),
     )
     app.run(host=args.host, port=args.port, debug=args.debug, threaded=True)
 
