@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import json
 
-from flask import Blueprint, Flask, current_app, jsonify, request
+from flask import Blueprint, Flask, current_app, jsonify, request, send_file
 
-from pipeline.api import exports
+from pipeline.api import charts, exports
 from pipeline.api.jobs import JobManager
 from pipeline.api.store import ConfigStore
 from pipeline.config import SimEDaPEConfig
@@ -247,9 +247,9 @@ def _job_or_404(run_id):
         return None, (jsonify({"error": f"Run não encontrado: {run_id!r}"}), 404)
 
 
-def _stage_prefix(job, stage: str, key: str, default: str) -> str:
+def _stage_prefix(job, stage: str, key: str, default: str, allow_override: bool = True) -> str:
     """Prefixo dos arquivos de um estágio: ``?prefix=`` > stage_params do run > default."""
-    override = request.args.get("prefix")
+    override = request.args.get("prefix") if allow_override else None
     if override:
         return override
     params = (job.meta.get("stage_params") or {}).get(stage) or {}
@@ -336,6 +336,82 @@ def run_comparison(run_id):
     except exports.ArtifactNotFound:
         return jsonify({"error": f"Comparação não encontrada: {method!r}"}), 404
     return jsonify({"run_id": run_id, "method": method, **detail})
+
+
+def _chart_prefixes(job) -> dict:
+    return {
+        "compare_prefix": _stage_prefix(job, "compare", "output_prefix", "compare", allow_override=False),
+        "sweep_prefix": _stage_prefix(job, "sweep", "output_prefix", "sweep", allow_override=False),
+        "est_prefix": _stage_prefix(job, "estimation", "output_prefix", "result", allow_override=False),
+        "clustering_file": job.meta.get("clustering_file", "clustering"),
+    }
+
+
+@api.get("/runs/<run_id>/charts")
+def run_charts(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    try:
+        listing = charts.catalog(job.meta.get("output_dir"), **_chart_prefixes(job))
+    except Exception as exc:  # prefixos inválidos vindos de ?prefix=
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"run_id": run_id, "data_source": job.meta.get("data_source"), "charts": listing})
+
+
+@api.get("/runs/<run_id>/charts/<chart_id>")
+def run_chart(run_id, chart_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    try:
+        chart = charts.build_chart(
+            job.meta.get("output_dir"), chart_id,
+            params=request.args.to_dict(), **_chart_prefixes(job),
+        )
+    except exports.ArtifactNotFound:
+        return jsonify({"error": f"Dados do gráfico indisponíveis: {chart_id!r}"}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(exports.sanitize({"run_id": run_id, **chart}))
+
+
+@api.get("/runs/<run_id>/sweep")
+def run_sweep(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    prefix = _stage_prefix(job, "sweep", "output_prefix", "sweep")
+    if not exports.valid_name(prefix):
+        return jsonify({"error": "Prefixo inválido."}), 400
+    try:
+        methods = charts._parse_methods(request.args.get("methods"))
+        table = charts.sweep_table(job.meta.get("output_dir"), prefix, methods)
+    except exports.ArtifactNotFound:
+        return jsonify({"error": "Resultados do sweep indisponíveis."}), 404
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify(exports.sanitize({"run_id": run_id, **table}))
+
+
+@api.get("/runs/<run_id>/reports")
+def run_reports(run_id):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    return jsonify({"run_id": run_id, "reports": exports.list_reports(job.meta.get("output_dir"))})
+
+
+@api.get("/runs/<run_id>/reports/<name>")
+def run_report_file(run_id, name):
+    job, err = _job_or_404(run_id)
+    if err:
+        return err
+    try:
+        path = exports.report_path(job.meta.get("output_dir"), name)
+    except exports.ArtifactNotFound:
+        return jsonify({"error": f"Relatório não encontrado: {name!r}"}), 404
+    return send_file(path, mimetype="application/pdf", download_name=name)
 
 
 def _summarize_context(ctx) -> dict:

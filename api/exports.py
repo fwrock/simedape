@@ -37,6 +37,12 @@ _KIND_BY_PREFIX = (
 )
 
 
+def ordered_metrics(keys) -> list[str]:
+    """Métricas na ordem dos relatórios (velocidade, ocupação, veículos, km); extras depois."""
+    known = [k for k in METRIC_LABELS if k in keys]
+    return known + sorted(k for k in keys if k not in METRIC_LABELS)
+
+
 class ArtifactNotFound(KeyError):
     pass
 
@@ -187,7 +193,7 @@ def comparison_matrix(output_dir: str | None, prefix: str = "compare") -> dict:
     """Matriz método × métrica (MAPE e erro agregado) e cobertura por método."""
     methods = list_methods(output_dir, prefix, exclude=("summary",))
     results = {m: _read_json(output_dir, f"{prefix}_{m}") for m in methods}
-    metrics = sorted({
+    metrics = ordered_metrics({
         k for r in results.values() for k in (r.get("per_series_error") or {})
     })
     return {
@@ -210,3 +216,24 @@ def comparison_matrix(output_dir: str | None, prefix: str = "compare") -> dict:
 
 def comparison_detail(output_dir: str | None, method: str, prefix: str = "compare") -> dict:
     return _read_json(output_dir, f"{prefix}_{method}")
+
+
+# -- relatórios em PDF --------------------------------------------------------
+
+def list_reports(output_dir: str | None) -> list[dict]:
+    """PDFs gerados em ``output_dir/plots``."""
+    return [
+        {"name": a["name"].split("/", 1)[1], "size_bytes": a["size_bytes"], "modified": a["modified"]}
+        for a in list_artifacts(output_dir)
+        if a["kind"] == "report"
+    ]
+
+
+def report_path(output_dir: str | None, name: str) -> str:
+    """Caminho de um PDF de ``plots/`` (só nomes simples terminados em ``.pdf``)."""
+    if not output_dir or not valid_name(name) or not name.endswith(".pdf"):
+        raise ArtifactNotFound(name)
+    path = os.path.join(output_dir, "plots", name)
+    if not os.path.isfile(path):
+        raise ArtifactNotFound(name)
+    return os.path.abspath(path)  # send_file resolve relativos à pasta do app, não ao cwd
